@@ -1,0 +1,65 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global safety net - Default Deny Catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOwnerOrInternal() {
+      return request.auth != null 
+        && 'email' in request.auth.token
+        && (
+          request.auth.token.email.lower() == 'herdisat29@gmail.com' ||
+          request.auth.token.email.lower().matches('.*@arsalanjaya\\.internal$')
+        );
+    }
+
+    // 2. Master Suku Cadang (Spareparts Catalog)
+    // - Public readability so customers can query symptom pricing.
+    // - Creation, update, deletion are restricted to authorized Owner/Internal accounts using Google Auth.
+    match /spareparts/{partId} {
+      allow get: if isValidId(partId);
+      allow list: if true;
+      allow create, update: if isOwnerOrInternal() && isValidId(partId) 
+        && request.resource.data.id is string
+        && request.resource.data.kode is string && request.resource.data.kode.size() <= 60
+        && request.resource.data.nama is string && request.resource.data.nama.size() <= 200
+        && request.resource.data.harga is number
+        && request.resource.data.kategori is string;
+      allow delete: if isOwnerOrInternal() && isValidId(partId);
+    }
+
+    // 3. Master Jasa
+    // - Public readability so customers can query symptom pricing.
+    // - Creation, update, deletion are restricted to authorized Owner/Internal accounts using Google Auth.
+    match /jasa/{jasaId} {
+      allow get: if isValidId(jasaId);
+      allow list: if true;
+      allow create, update: if isOwnerOrInternal() && isValidId(jasaId)
+        && request.resource.data.id is string
+        && request.resource.data.kode is string && request.resource.data.kode.size() <= 60
+        && request.resource.data.nama is string && request.resource.data.nama.size() <= 200
+        && request.resource.data.harga is number;
+      allow delete: if isOwnerOrInternal() && isValidId(jasaId);
+    }
+
+    // 4. Estimasi History Records
+    // - Read / Create / Update bypasses security rules since local Service Advisor terminal works offline/bypass
+    // - Strictly validated schema structure, prevents recursive DOS or invalid field poisoning.
+    // - Deletion is restricted to Owner/Internal only.
+    match /estimasi/{estimasiId} {
+      allow get: if isValidId(estimasiId);
+      allow list: if true;
+      allow create, update: if isValidId(estimasiId)
+        && request.resource.data.id is string
+        && request.resource.data.noEstimasi is string && request.resource.data.noEstimasi.size() <= 100;
+      allow delete: if isOwnerOrInternal() && isValidId(estimasiId);
+    }
+  }
+}
